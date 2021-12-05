@@ -1,0 +1,96 @@
+#!/usr/bin/python3
+
+from ctypes import *
+import io
+import sys
+from time import localtime, strftime
+
+BLKSIZ = 512
+
+class SuperBlock(LittleEndianStructure):
+    _fields_ = (
+        ('isize', c_int16),
+        ('fsize', c_int16),
+        ('nfree', c_int16),
+        ('free', c_int16 * 100),
+        ('ninode', c_int16),
+        ('inode', c_int16 * 100),
+        ('flock', c_int8),
+        ('ilock', c_int8),
+        ('fmod', c_int8),
+        ('ronly', c_int8),
+        ('time', c_int32),
+        ('pad', c_int16 * 48),
+    )
+
+def hexdump(block):
+    #print(type(block))
+    offset = 0
+    for b in block:
+        offset += 1
+        sep = '\n' if offset % 16 == 0 else ' '
+        print('{0:02x}{1}'.format(b & 0xff, sep), end='')
+
+def parse(block):
+    info = SuperBlock()
+    io.BytesIO(block).readinto(info)
+    # PDP endian
+    info.time = info.time >> 16 & 0xffff | (info.time & 0xffff) << 16
+    return info
+
+def superblock(f):
+    if f.seekable():
+        f.seek(BLKSIZ)
+    else:
+        f.read(BLKSIZ)
+    block = f.read(BLKSIZ)
+    
+    #hexdump(block)
+    i = parse(block)
+    print('''size in blocks of I list: {0:d} ({0:04x})
+size in blocks of entire volume: {1:d} ({1:04x})
+number of in core free blocks (0-100): {2:d} ({2:04x})
+number of in core I nodes (0-100): {3:d} ({3:04x})
+lock during free list manipulation: {4:d} ({4:02x})
+lock during I list manipulation: {5:d} ({5:02x})
+super block modified flag: {6:d} ({6:02x})
+mounted read-only flag: {7:d} ({7:02x})
+current date of last update: {9:s} ({8:d}/{8:08x})'''.format(i.isize, i.fsize, i.nfree, i.ninode, i.flock, i.ilock, i.fmod, i.ronly, i.time, strftime('%Y-%m-%d %H:%M:%S', localtime(i.time))))
+
+def main():
+    if len(sys.argv) <= 1:
+        superblock(sys.stdin.buffer)
+    else:
+        for arg in sys.argv[1:]:
+            with open(arg, 'rb') as file:
+                superblock(file)
+
+if __name__ == '__main__':
+   main()
+
+# /*
+#  * Definition of the unix super block.
+#  * The root super block is allocated and
+#  * read in iinit/alloc.c. Subsequently
+#  * a super block is allocated and read
+#  * with each mount (smount/sys3.c) and
+#  * released with unmount (sumount/sys3.c).
+#  * A disk block is ripped off for storage.
+#  * See alloc.c for general alloc/free
+#  * routines for free list and I list.
+#  */
+# struct	filsys
+# {
+# 	int	s_isize;	/* size in blocks of I list */
+# 	int	s_fsize;	/* size in blocks of entire volume */
+# 	int	s_nfree;	/* number of in core free blocks (0-100) */
+# 	int	s_free[100];	/* in core free blocks */
+# 	int	s_ninode;	/* number of in core I nodes (0-100) */
+# 	int	s_inode[100];	/* in core free I nodes */
+# 	char	s_flock;	/* lock during free list manipulation */
+# 	char	s_ilock;	/* lock during I list manipulation */
+# 	char	s_fmod;		/* super block modified flag */
+# 	char	s_ronly;	/* mounted read-only flag */
+# 	int	s_time[2];	/* current date of last update */
+# 	int	pad[50];
+# };
