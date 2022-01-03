@@ -85,7 +85,8 @@ def filemode(mode):
     owner = permission(mode, mode & ISUID == ISUID)
     group = permission(mode << 3, mode & ISGID == ISGID)
     others = permission(mode << 6, mode & ISVTX)
-    return type + owner + group + others
+    alloc = '*' if mode & IALLOC == IALLOC else '.'
+    return type + owner + group + others + alloc
 
 def inode(block):
     info = INode()
