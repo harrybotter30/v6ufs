@@ -27,7 +27,7 @@ class INode(LittleEndianStructure):
     _fields_ = (
         ('mode', c_uint16),	# file type and mode
         ('nlink', c_uint8),	# link count
-	('uid', c_int8),	# user id
+        ('uid', c_int8),	# user id
         ('gid', c_int8),	# group id
         ('size0', c_uint8),	# file size
         ('size1', c_uint16),	# file size
