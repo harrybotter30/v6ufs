@@ -85,8 +85,9 @@ def filemode(mode):
     owner = permission(mode, mode & ISUID == ISUID)
     group = permission(mode << 3, mode & ISGID == ISGID)
     others = permission(mode << 6, mode & ISVTX)
+    large = 'L' if mode & ILARG == ILARG else '.'
     alloc = '*' if mode & IALLOC == IALLOC else '.'
-    return type + owner + group + others + alloc
+    return type + owner + group + others + large + alloc
 
 def inode(block):
     info = INode()
@@ -95,8 +96,13 @@ def inode(block):
     info.mtime = pdpendian(info.mtime)
     return info
 
-def report_inode(i):
-    print('''file type and mode: {11:s} ({0:d}/{0:04x})
+def report_inode(ino, i):
+    # ino (blks) mode nlink user group size timestamp name, blks
+    print('{12:5d} {11:2s} {1:2d} {2:2d} {3:2d} {10:8d} {9:s} {13}'.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode), ino, '[' + ','.join([str(a) for a in i.addr]) + ']'))
+
+def dump_inode(ino, i):
+    print('''inode: {12:d}
+file type and mode: {11:s} ({0:d}/{0:04x})
 link count: {1:d} ({1:02x})
 user id: {2:d} ({2:02x})
 group id: {3:d} ({3:02x})
@@ -104,7 +110,7 @@ file size0: {4:d} ({4:02x})
 file size1: {5:d} ({5:04x})
 file size: {10:d} ({10:08x})
 last access time: {7:s} ({6:d}/{6:08x})
-last modified time: {9:s} ({8:d}/{8:08x})'''.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode)))
+last modified time: {9:s} ({8:d}/{8:08x})'''.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode), ino))
 
 def superblock(block):
     info = SuperBlock()
@@ -134,11 +140,11 @@ def report(f):
     #hexdump(block)
     sb = superblock(block)
     #report_superblock(sb)
-    for i in range(100 * BLKSIZ // sizeof(INode)):
+    for i in range(sb.isize * BLKSIZ // sizeof(INode)):
         block = f.read(sizeof(INode))
         node = inode(block)
         if (node.nlink > 0):
-            report_inode(node)
+            report_inode(i + 1, node)
 
 def main():
     if len(sys.argv) <= 1:
