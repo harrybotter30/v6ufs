@@ -95,8 +95,9 @@ def inode(block):
     info.mtime = pdpendian(info.mtime)
     return info
 
-def report_inode(i):
-    print('''file type and mode: {11:s} ({0:d}/{0:04x})
+def report_inode(ino, i):
+    print('''inode: {12:d}
+file type and mode: {11:s} ({0:d}/{0:04x})
 link count: {1:d} ({1:02x})
 user id: {2:d} ({2:02x})
 group id: {3:d} ({3:02x})
@@ -104,7 +105,7 @@ file size0: {4:d} ({4:02x})
 file size1: {5:d} ({5:04x})
 file size: {10:d} ({10:08x})
 last access time: {7:s} ({6:d}/{6:08x})
-last modified time: {9:s} ({8:d}/{8:08x})'''.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode)))
+last modified time: {9:s} ({8:d}/{8:08x})'''.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode), ino))
 
 def superblock(block):
     info = SuperBlock()
@@ -138,7 +139,7 @@ def report(f):
         block = f.read(sizeof(INode))
         node = inode(block)
         if (node.nlink > 0):
-            report_inode(node)
+            report_inode(i + 1, node)
 
 def main():
     if len(sys.argv) <= 1:
