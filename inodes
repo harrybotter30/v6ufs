@@ -134,7 +134,7 @@ def report(f):
     #hexdump(block)
     sb = superblock(block)
     #report_superblock(sb)
-    for i in range(100 * BLKSIZ // sizeof(INode)):
+    for i in range(sb.isize * BLKSIZ // sizeof(INode)):
         block = f.read(sizeof(INode))
         node = inode(block)
         if (node.nlink > 0):
