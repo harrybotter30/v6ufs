@@ -97,6 +97,10 @@ def inode(block):
     return info
 
 def report_inode(ino, i):
+    # ino (blks) mode nlink user group size timestamp name, blks
+    print('{12:5d} {11:2s} {1:2d} {2:2d} {3:2d} {10:8d} {9:s} {13}'.format(i.mode, i.nlink, i.uid, i.gid, i.size0, i.size1, i.atime, unixtime(i.atime), i.mtime, unixtime(i.mtime), filesize(i.size0, i.size1), filemode(i.mode), ino, '[' + ','.join([str(a) for a in i.addr]) + ']'))
+
+def dump_inode(ino, i):
     print('''inode: {12:d}
 file type and mode: {11:s} ({0:d}/{0:04x})
 link count: {1:d} ({1:02x})
