@@ -54,6 +54,9 @@ class SuperBlock(LittleEndianStructure):
         ('pad', c_int16 * 48),
     )
 
+def error(message):
+    print(message, file=sys.stderr)
+
 def hexdump(block):
     #print(type(block))
     offset = 0
@@ -124,7 +127,7 @@ def init(devfile):
 
 def main():
     if len(sys.argv) <= 1:
-        print('usage: {} devfile [ino...]'.format(sys.argv[0]), file=sys.stderr)
+        error('usage: {} devfile [ino...]'.format(sys.argv[0]))
     else:
         with open(sys.argv[1], 'rb') as devfile:
             init(devfile)
