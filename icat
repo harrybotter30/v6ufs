@@ -112,8 +112,28 @@ def superblock(block):
     info.time = pdpendian(info.time)
     return info
 
+def device(inode, ino):
+    major = (inode.addr[0] >> 8) & 0xff
+    minor = inode.addr[0] & 0xff
+    print('{:5d} {} {:2d} {:2d} {:2d} {:3d}, {:3d} {} {}'.format(ino, filemode(inode.mode), inode.nlink, inode.uid, inode.gid, major, minor, unixtime(inode.mtime), unixtime(inode.atime)))
+
 def icat(devfile, ino):
-    pass
+    if ino <= 0 or ino > len(INODES):
+        error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
+        return
+    inode = INODES[ino - 1]
+    if inode.nlink == 0:
+        error('inode number {}: not used'.format(ino))
+    else:
+        type = inode.mode & IFMT
+        if type == 0:           # regular file
+            pass
+        elif type == IFDIR:     # directory
+            pass
+        elif type == IFCHR:     # character device
+            device(inode, ino)
+        elif type == IFBLK:     # block device
+            device(inode, ino)
 
 def init(devfile):
     devfile.seek(BLKSIZ)        # skip #0
