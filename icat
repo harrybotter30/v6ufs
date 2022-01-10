@@ -23,6 +23,8 @@ IREAD	= 0x100
 IWRITE	= 0x80
 IEXEC	= 0x40
 
+INODES = []
+
 class INode(LittleEndianStructure):
     _fields_ = (
         ('mode', c_uint16),	# file type and mode
@@ -111,7 +113,14 @@ def icat(devfile, ino):
     pass
 
 def init(devfile):
-    pass
+    devfile.seek(BLKSIZ)        # skip #0
+    block = devfile.read(BLKSIZ)
+    sb = superblock(block)
+    for i in range(sb.isize * BLKSIZ // sizeof(INode)):
+        block = devfile.read(sizeof(INode))
+        node = inode(block)
+        INODES.append(node)
+        assert i + 1 == len(INODES), '(inode number: {} + 1) != (inode count: {})'.format(i + 1, len(INODES))
 
 def main():
     if len(sys.argv) <= 1:
