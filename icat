@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import logging.config
+import struct
 import sys
 from time import localtime, strftime
 
@@ -56,6 +57,55 @@ class SuperBlock(LittleEndianStructure):
         ('time', c_int32),      # current date of last updatexs
         ('pad', c_int16 * 48),
     )
+
+class V6File():
+    @staticmethod
+    def bread(devfile, blkno):
+        devfile.seek(BLKSIZ * blkno)
+        return devfile.read(BLKSIZ)
+    @staticmethod
+    def readaddr(devfile, blkno):
+        buf = V6File.bread(devfile, blkno)
+        assert len(buf) == BLKSIZ
+        return struct.unpack('<' + str(BLKSIZ // 2) + 'H', buf)
+
+    def __init__(self, inode, devfile):
+        size = filesize(inode.size0, inode.size1)
+        q, r = divmod(size, BLKSIZ)
+        if r > 0:
+            q += 1
+        large = inode.mode & ILARG == ILARG
+        blkno = []
+        i = 0
+        for a in inode.addr:
+            i += 1
+            if a > 0:
+                if not large:
+                    blkno.append(a)
+                else:
+                    for b in V6File.readaddr(devfile, a):
+                        if b > 0:
+                            if i < 8:
+                                blkno.append(b)
+                            else:
+                                for c in V6File.readaddr(devfile, b):
+                                    if c > 0:
+                                        blkno.append(c)
+        logger.debug('addr: ({}){}'.format(len(blkno), '[' + ','.join([str(a) for a in blkno]) + ']'))
+        assert i == 8
+        assert q == len(blkno)
+        self.blkno = blkno
+        self.remainder = r
+        self.devfile = devfile
+    def read(self):
+        if len(self.blkno) <= 0:
+            return None
+        no = self.blkno.pop(0)
+        assert no > 0
+        data = V6File.bread(self.devfile, no)
+        if len(self.blkno) == 0 and self.remainder > 0:
+            data = data[:self.remainder]
+        return data
 
 logger = logging.getLogger(__name__)
 
