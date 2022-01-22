@@ -183,6 +183,20 @@ def regular(inode, devfile, ino):
             break
         sys.stdout.buffer.write(data)
 
+def directory(inode, devfile, ino):
+    size = filesize(inode.size0, inode.size1)
+    logger.debug('{:5d} {} {:2d} {:2d} {:2d} {:8d} {} {}'.format(ino, filemode(inode.mode), inode.nlink, inode.uid, inode.gid, size, unixtime(inode.mtime), unixtime(inode.atime)))
+    DIRENT = 16
+    file = V6File(inode, devfile)
+    while True:
+        data = file.read()
+        if not data:
+            break
+        for j in range(len(data) // DIRENT):
+            inum, name = struct.unpack_from('<H14s', data, DIRENT * j)
+            if inum > 0:
+                print('{:5d} {}'.format(inum, name.decode()))
+
 def icat(devfile, ino):
     if ino <= 0 or ino > len(INODES):
         error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
@@ -195,7 +209,7 @@ def icat(devfile, ino):
         if type == 0:           # regular file
             regular(inode, devfile, ino)
         elif type == IFDIR:     # directory
-            pass
+            directory(inode, devfile, ino)
         elif type == IFCHR:     # character device
             device(inode, ino)
         elif type == IFBLK:     # block device
