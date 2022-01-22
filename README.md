@@ -1,6 +1,18 @@
 # v6ufs
 Learning of the Unix v6 filesystem
 
+## Utilities
+
+- [icat](./icat)
+    - print files by i-nodes
+    - usage: icat devicefile \[inode ...\]
+- [inodes](./inodes)
+    - report i-node information
+    - usage: inodes \[devicefile ...\]
+- [superblock](./superblock)
+    - report superblock information
+    - usage: superblock \[devicefile ...\]
+
 ## References
 
 - [The Unix Heritage Society](https://www.tuhs.org/)
