@@ -185,6 +185,9 @@ def device(level, inode, ino, name=None):
     minor = inode.addr[0] & 0xff
     print(indent(level) + pretty(inode, ino, name, devno=(major, minor)))
 
+def regular(level, inode, ino, name=None):
+    print(indent(level) + pretty(inode, ino, name))
+
 def traverse(level, devfile, ino, name=None):
     if ino <= 0 or ino > len(INODES):
         error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
@@ -195,7 +198,7 @@ def traverse(level, devfile, ino, name=None):
     else:
         type = inode.mode & IFMT
         if type == 0:           # regular file
-            pass
+            regular(level, inode, ino, name)
         elif type == IFDIR:     # directory
             pass
         elif type == IFCHR:     # character device
