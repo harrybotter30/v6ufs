@@ -9,6 +9,8 @@ import struct
 import sys
 from time import localtime, strftime
 
+INDENT = '->'
+
 NINODE = 100
 BLKSIZ = 512
 
@@ -162,6 +164,27 @@ def superblock(block):
     info.time = pdpendian(info.time)
     return info
 
+def indent(level):
+    return INDENT * level
+
+def pretty(inode, ino, name=None, devno=None):
+    p = None
+    if devno:
+        major = devno[0]
+        minor = devno[1]
+        p = '{:5d} {} {:2d} {:2d} {:2d} {:3d}, {:3d} {} {}'.format(ino, filemode(inode.mode), inode.nlink, inode.uid, inode.gid, major, minor, unixtime(inode.mtime), unixtime(inode.atime))
+    else:
+        size = filesize(inode.size0, inode.size1)
+        p = '{:5d} {} {:2d} {:2d} {:2d} {:8d} {} {}'.format(ino, filemode(inode.mode), inode.nlink, inode.uid, inode.gid, size, unixtime(inode.mtime), unixtime(inode.atime))
+    if name:
+        p += ' ' + name
+    return p
+
+def device(level, inode, ino, name=None):
+    major = (inode.addr[0] >> 8) & 0xff
+    minor = inode.addr[0] & 0xff
+    print(indent(level) + pretty(inode, ino, name, devno=(major, minor)))
+
 def traverse(level, devfile, ino, name=None):
     if ino <= 0 or ino > len(INODES):
         error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
@@ -176,9 +199,9 @@ def traverse(level, devfile, ino, name=None):
         elif type == IFDIR:     # directory
             pass
         elif type == IFCHR:     # character device
-            pass
+            device(level, inode, ino, name)
         elif type == IFBLK:     # block device
-            pass
+            device(level, inode, ino, name)
 
 def init(devfile):
     devfile.seek(BLKSIZ)        # skip #0
