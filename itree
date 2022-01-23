@@ -31,6 +31,14 @@ IEXEC   = 0x40
 
 INODES = []
 
+class Dirent(LittleEndianStructure):
+    _fields_ = (
+        ('d_ino', c_uint16),
+        ('d_name', c_char * 14),
+    )
+    def __format__(self, format_spec):
+        return '{"d_ino":' + str(self.d_ino) + ', "d_name":"' + self.d_name.decode() + '"}'
+
 class INode(LittleEndianStructure):
     _fields_ = (
         ('mode', c_uint16),     # file type and mode
@@ -191,6 +199,22 @@ def regular(level, inode, ino, name=None):
 def directory(level, inode, ino, name=None):
     print(indent(level) + pretty(inode, ino, name))
 
+def descendants(devfile, level, inode):
+    file = V6File(inode, devfile)
+    while True:
+        data = file.read()
+        if not data:
+            break
+        block = io.BytesIO(data)
+        while True:
+            dirent = Dirent()
+            n = block.readinto(dirent)
+            logger.debug('{}: {}'.format(n, dirent))
+            if not n:
+                break
+            if dirent.d_ino > 0:
+                traverse(level, devfile, dirent.d_ino, dirent.d_name.decode())
+
 def traverse(level, devfile, ino, name=None):
     if ino <= 0 or ino > len(INODES):
         error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
@@ -204,6 +228,8 @@ def traverse(level, devfile, ino, name=None):
             regular(level, inode, ino, name)
         elif type == IFDIR:     # directory
             directory(level, inode, ino, name)
+            if name not in {'.', '..'}:
+                descendants(devfile, level + 1, inode)
         elif type == IFCHR:     # character device
             device(level, inode, ino, name)
         elif type == IFBLK:     # block device
