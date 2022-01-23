@@ -188,6 +188,9 @@ def device(level, inode, ino, name=None):
 def regular(level, inode, ino, name=None):
     print(indent(level) + pretty(inode, ino, name))
 
+def directory(level, inode, ino, name=None):
+    print(indent(level) + pretty(inode, ino, name))
+
 def traverse(level, devfile, ino, name=None):
     if ino <= 0 or ino > len(INODES):
         error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
@@ -200,7 +203,7 @@ def traverse(level, devfile, ino, name=None):
         if type == 0:           # regular file
             regular(level, inode, ino, name)
         elif type == IFDIR:     # directory
-            pass
+            directory(level, inode, ino, name)
         elif type == IFCHR:     # character device
             device(level, inode, ino, name)
         elif type == IFBLK:     # block device
