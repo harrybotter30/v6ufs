@@ -3,6 +3,9 @@ Learning of the Unix v6 filesystem
 
 ## Utilities
 
+- [itree](./itree)
+    - print directory tree by i-nodes
+    - usage: itree devicefile \[inode ...\]
 - [icat](./icat)
     - print files by i-nodes
     - usage: icat devicefile \[inode ...\]
