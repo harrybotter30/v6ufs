@@ -1,0 +1,277 @@
+#!/usr/bin/python3
+
+from ctypes import *
+import io
+import json
+import logging
+import logging.config
+import struct
+import sys
+import tarfile
+from time import localtime, strftime
+
+NINODE = 100
+BLKSIZ = 512
+
+IALLOC  = 0x8000                # file is used
+
+IFMT    = 0x6000                # type of file (mask)
+IFDIR   = 0x4000                # directory
+IFCHR   = 0x2000                # character special
+IFBLK   = 0x6000                # block special, 0 is regular
+
+ILARG   = 0x1000                # large addressing algorithm
+ISUID   = 0x800                 # set user id on execution
+ISGID   = 0x400                 # set group id on execution
+ISVTX   = 0x200                 # save swapped text even after use
+IREAD   = 0x100
+IWRITE  = 0x80
+IEXEC   = 0x40
+
+INODES = []
+
+class Dirent(LittleEndianStructure):
+    _fields_ = (
+        ('d_ino', c_uint16),
+        ('d_name', c_char * 14),
+    )
+    def __format__(self, format_spec):
+        return '{"d_ino":' + str(self.d_ino) + ', "d_name":"' + self.d_name.decode() + '"}'
+
+class INode(LittleEndianStructure):
+    _fields_ = (
+        ('mode', c_uint16),     # file type and mode
+        ('nlink', c_uint8),     # link count
+        ('uid', c_int8),        # user id
+        ('gid', c_int8),        # group id
+        ('size0', c_uint8),     # file size
+        ('size1', c_uint16),    # file size
+        ('addr', c_int16 * 8),  # device address
+        ('atime', c_uint32),    # last access time
+        ('mtime', c_uint32),    # last modified time
+    )
+
+class SuperBlock(LittleEndianStructure):
+    _fields_ = (
+        ('isize', c_int16),     # size in blocks of I list
+        ('fsize', c_int16),     # size in blocks of entire volume
+        ('nfree', c_int16),     # number of in core free blocks (0-100)
+        ('free', c_int16 * 100), # in core free blocks
+        ('ninode', c_int16),    # number of in core I nodes (0-100)
+        ('inode', c_int16 * 100), # in core free I nodes
+        ('flock', c_int8),      # lock during free list manipulation
+        ('ilock', c_int8),      # lock during I list manipulation
+        ('fmod', c_int8),       # super block modified flag
+        ('ronly', c_int8),      # mounted read-only flag
+        ('time', c_int32),      # current date of last updatexs
+        ('pad', c_int16 * 48),
+    )
+
+class V6File():
+    @staticmethod
+    def bread(devfile, blkno):
+        devfile.seek(BLKSIZ * blkno)
+        return devfile.read(BLKSIZ)
+    @staticmethod
+    def readaddr(devfile, blkno):
+        buf = V6File.bread(devfile, blkno)
+        assert len(buf) == BLKSIZ
+        return struct.unpack('<' + str(BLKSIZ // 2) + 'H', buf)
+
+    def __init__(self, inode, devfile):
+        size = filesize(inode.size0, inode.size1)
+        q, r = divmod(size, BLKSIZ)
+        if r > 0:
+            q += 1
+        large = inode.mode & ILARG == ILARG
+        blkno = []
+        i = 0
+        for a in inode.addr:
+            i += 1
+            if a > 0:
+                if not large:
+                    blkno.append(a)
+                else:
+                    for b in V6File.readaddr(devfile, a):
+                        if b > 0:
+                            if i < 8:
+                                blkno.append(b)
+                            else:
+                                for c in V6File.readaddr(devfile, b):
+                                    if c > 0:
+                                        blkno.append(c)
+        logger.debug('addr: ({}){}'.format(len(blkno), '[' + ','.join([str(a) for a in blkno]) + ']'))
+        assert i == 8
+        assert q == len(blkno)
+        self.blkno = blkno
+        self.remainder = r
+        self.devfile = devfile
+    def read(self):
+        if len(self.blkno) <= 0:
+            return None
+        no = self.blkno.pop(0)
+        assert no > 0
+        data = V6File.bread(self.devfile, no)
+        if len(self.blkno) == 0 and self.remainder > 0:
+            data = data[:self.remainder]
+        return data
+
+logger = logging.getLogger(__name__)
+
+def error(message):
+    print(message, file=sys.stderr)
+
+def hexdump(block):
+    offset = 0
+    for b in block:
+        offset += 1
+        sep = '\n' if offset % 16 == 0 else ' '
+        print('{0:02x}{1}'.format(b & 0xff, sep), end='')
+
+def pdpendian(i32):
+    return i32 >> 16 & 0xffff | (i32 & 0xffff) << 16
+
+def unixtime(serial):
+    return strftime('%Y-%m-%d %H:%M:%S', localtime(serial))
+
+def filesize(s0, s1):
+    return s0 << 16 | s1 & 0xffff
+
+def permission(perm, setid, sticky = False):
+    read = 'r' if perm & IREAD else '-'
+    write = 'w' if perm & IWRITE else '-'
+    exec = 'x' if perm & IEXEC else '-'
+    if setid:
+        exec = 's' if perm & IEXEC else 'S'
+    if sticky:
+        exec = 't' if perm & IEXEC else 'T'
+    return read + write + exec
+
+def filemode(mode):
+    type = mode & IFMT
+    type = '-' if type == 0 else 'd' if type == IFDIR else 'c' if type == IFCHR else 'b'
+    owner = permission(mode, mode & ISUID == ISUID)
+    group = permission(mode << 3, mode & ISGID == ISGID)
+    others = permission(mode << 6, mode & ISVTX)
+    large = 'L' if mode & ILARG == ILARG else '.'
+    alloc = '*' if mode & IALLOC == IALLOC else '.'
+    return type + owner + group + others + large + alloc
+
+def inode(block):
+    info = INode()
+    io.BytesIO(block).readinto(info)
+    info.atime = pdpendian(info.atime)
+    info.mtime = pdpendian(info.mtime)
+    return info
+
+def superblock(block):
+    info = SuperBlock()
+    io.BytesIO(block).readinto(info)
+    # PDP endian
+    info.time = pdpendian(info.time)
+    return info
+
+def makeinfo(inode, ino, path, type, devno=None):
+    info = tarfile.TarInfo(path)
+    info.mode = inode.mode & ~(IALLOC | IFMT | ILARG)
+    info.uid = inode.uid
+    info.gid = inode.gid
+    info.mtime = inode.mtime
+    info.type = type
+    if type == tarfile.REGTYPE:
+        info.size = filesize(inode.size0, inode.size1)
+    elif devno:
+        info.devmajor = devno[0]
+        info.devminor = devno[1]
+    return info
+
+def device(archive, path, inode, ino, type):
+    major = (inode.addr[0] >> 8) & 0xff
+    minor = inode.addr[0] & 0xff
+    info = makeinfo(inode, ino, path, type, devno=(major, minor))
+    logger.debug(info)
+    archive.addfile(info)
+
+def regular(archive, devfile, path, inode, ino):
+    pass
+
+def directory(archive, path, inode, ino):
+    info = makeinfo(inode, ino, path, tarfile.DIRTYPE)
+    logger.debug(info)
+    archive.addfile(info)
+
+def descendants(archive, devfile, path, inode):
+    file = V6File(inode, devfile)
+    while True:
+        data = file.read()
+        if not data:
+            break
+        block = io.BytesIO(data)
+        while True:
+            dirent = Dirent()
+            n = block.readinto(dirent)
+            logger.debug('{}: {}'.format(n, dirent))
+            if not n:
+                break
+            if dirent.d_ino > 0:
+                traverse(archive, devfile, path, dirent.d_ino, dirent.d_name.decode())
+
+def traverse(archive, devfile, parent, ino, name=None):
+    if ino <= 0 or ino > len(INODES):
+        error('inode number {}: out of bounds [1, {}]'.format(ino, len(INODES)))
+        return
+    inode = INODES[ino - 1]
+    if inode.nlink == 0:
+        error('inode number {}: not used'.format(ino))
+    else:
+        type = inode.mode & IFMT
+        if name:
+            path = parent + '/' + name if parent else name
+        else:
+            if parent:
+                path = parent
+            else:
+                if type == IFDIR:
+                    path = '.'
+                else:
+                    path = 'unknown'
+        if type == 0:           # regular file
+            regular(archive, devfile, path, inode, ino)
+        elif type == IFDIR:     # directory
+            if name not in {'.', '..'}:
+                directory(archive, path, inode, ino)
+                descendants(archive, devfile, path, inode)
+        elif type == IFCHR:     # character device
+            device(archive, path, inode, ino, tarfile.CHRTYPE)
+        elif type == IFBLK:     # block device
+            device(archive, path, inode, ino, tarfile.BLKTYPE)
+
+def init(devfile):
+    devfile.seek(BLKSIZ)        # skip #0
+    block = devfile.read(BLKSIZ)
+    sb = superblock(block)
+    for i in range(sb.isize * BLKSIZ // sizeof(INode)):
+        block = devfile.read(sizeof(INode))
+        node = inode(block)
+        INODES.append(node)
+        assert i + 1 == len(INODES), '(inode number: {} + 1) != (inode count: {})'.format(i + 1, len(INODES))
+
+def main():
+    if len(sys.argv) <= 1:
+        error('usage: {} devfile [ino...]'.format(sys.argv[0]))
+    else:
+        with open(sys.argv[1], 'rb') as devfile:
+            init(devfile)
+            with tarfile.open('sample.tar.gz', 'w|gz') as archive:
+                if len(sys.argv) <= 2:
+                    traverse(archive, devfile, '', 1)
+                else:
+                    for arg in sys.argv[2:]:
+                        traverse(archive, devfile, '', int(arg))
+                archive.close()
+
+if __name__ == '__main__':
+    with open('logconfig.json') as c:
+        log_config = json.load(c)
+    logging.config.dictConfig(log_config)
+    main()
