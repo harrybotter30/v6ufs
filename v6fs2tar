@@ -105,8 +105,9 @@ class V6File():
         assert q == len(blkno)
         self.blkno = blkno
         self.remainder = r
+        self.readbuf = bytearray(0)
         self.devfile = devfile
-    def read(self):
+    def readblk(self):
         if len(self.blkno) <= 0:
             return None
         no = self.blkno.pop(0)
@@ -114,6 +115,23 @@ class V6File():
         data = V6File.bread(self.devfile, no)
         if len(self.blkno) == 0 and self.remainder > 0:
             data = data[:self.remainder]
+        return data
+    def read(self, size=-1):    # inherit io.IOBase.read(size=-1)
+        if self.readbuf is None:
+            return b''
+        if size is None or size < 0:
+            size = 0x20e0001    # max file length (32MB+896KB) + 1
+        blk = None
+        while len(self.readbuf) < size: # fill readbuf
+            blk = self.readblk()
+            if (blk):
+                self.readbuf.extend(blk)
+            else:
+                break
+        data = bytearray(self.readbuf[0:size])
+        del self.readbuf[0:size]
+        if blk is None and len(self.readbuf) <= 0:
+            self.readbuf = None
         return data
 
 logger = logging.getLogger(__name__)
@@ -193,7 +211,9 @@ def device(archive, path, inode, ino, type):
     archive.addfile(info)
 
 def regular(archive, devfile, path, inode, ino):
-    pass
+    info = makeinfo(inode, ino, path, tarfile.REGTYPE)
+    logger.debug(info)
+    archive.addfile(info, V6File(inode, devfile))
 
 def directory(archive, path, inode, ino):
     info = makeinfo(inode, ino, path, tarfile.DIRTYPE)
@@ -203,7 +223,7 @@ def directory(archive, path, inode, ino):
 def descendants(archive, devfile, path, inode):
     file = V6File(inode, devfile)
     while True:
-        data = file.read()
+        data = file.readblk()
         if not data:
             break
         block = io.BytesIO(data)
