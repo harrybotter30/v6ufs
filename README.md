@@ -3,6 +3,9 @@ Learning of the Unix v6 filesystem
 
 ## Utilities
 
+- [v6fs2tar](./v6fs2tar)
+    - convert v6 devicefile to tar archive
+    - usage: v6fs2tar \[-o output\] \[-z|-j|-J|-t gz|bz2|xz\] devicefile \[inode ...\]
 - [itree](./itree)
     - print directory tree by i-nodes
     - usage: itree devicefile \[inode ...\]
