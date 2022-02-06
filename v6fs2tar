@@ -139,6 +139,53 @@ logger = logging.getLogger(__name__)
 def error(message):
     print(message, file=sys.stderr)
 
+# porting of public domain AT&T getopt
+optind, optopt, opterr, optarg = 1, None, 1, None
+sp = 1
+def ERR(msg, prog, c):
+    if opterr:
+        print(prog + msg + c, file=sys.stderr)
+def getopt(argv, optstring):
+    global optind, optopt, optarg, sp
+    if sp == 1:
+        if optind >= len(argv) or len(argv[optind]) <= 1 or argv[optind][0] != '-':
+            return None
+        elif argv[optind] == '--':
+            optind += 1
+            return None
+    optopt = argv[optind][sp]
+    cp = optstring.find(optopt)
+    if optopt == ':' or cp < 0:
+        ERR(': illegal option -- ', argv[0], optopt)
+        sp += 1
+        if sp >= len(argv[optind]):
+            optind += 1
+            sp = 1
+        return '?'
+    cp += 1
+    if cp < len(optstring) and optstring[cp] == ':':
+        sp += 1
+        if sp < len(argv[optind]):
+            optarg = argv[optind][sp:]
+            optind += 1
+        else:
+            optind += 1
+            if optind >= len(argv):
+                ERR(': option requires an argument -- ', argv[0], optopt)
+                sp = 1
+                return '?'
+            else:
+                optarg = argv[optind]
+                optind += 1
+        sp = 1
+    else:
+        sp += 1
+        if sp >= len(argv[optind]):
+            optind += 1
+            sp = 1
+        optarg = None
+    return optopt
+
 def hexdump(block):
     offset = 0
     for b in block:
@@ -276,19 +323,68 @@ def init(devfile):
         INODES.append(node)
         assert i + 1 == len(INODES), '(inode number: {} + 1) != (inode count: {})'.format(i + 1, len(INODES))
 
+def compress(type):
+    type = type.lower()
+    if type in {'gz', 'z'}:
+        return 'w|gz'
+    elif type == 'bz2':
+        return 'w|bz2'
+    elif type == 'xz':
+        return 'w|xz'
+    else:
+        error('unkown compression type: {}'.format(type))
+    return None
+
 def main():
     if len(sys.argv) <= 1:
-        error('usage: {} devfile [ino...]'.format(sys.argv[0]))
-    else:
-        with open(sys.argv[1], 'rb') as devfile:
-            init(devfile)
-            with tarfile.open('sample.tar.gz', 'w|gz') as archive:
-                if len(sys.argv) <= 2:
-                    traverse(archive, devfile, '', 1)
-                else:
-                    for arg in sys.argv[2:]:
-                        traverse(archive, devfile, '', int(arg))
-                archive.close()
+        error('usage: {} [-o output] [-z|-j|-J|-t gz|bz2|xz] devfile [ino...]'.format(sys.argv[0]))
+        return
+
+    # default params
+    outfile = '-'
+    mode = None
+    fileobj = None
+
+    # parse option
+    while True:
+        c = getopt(sys.argv, 'o:t:zjJ')
+        if c is None:
+            break
+        elif c == 'o':
+            outfile = optarg
+        elif c == 't':
+            mode = compress(optarg)
+        elif optopt == 'z':
+            mode = 'w|gz'
+        elif optopt == 'j':
+            mode = 'w|bz2'
+        elif optopt == 'J':
+            mode = 'w|xz'
+        else:
+            error('usage: {} [-o output] [-z|-j|-J|-t gz|bz2|xz] devfile [ino...]'.format(sys.argv[0]))
+            return
+
+    # adjust params
+    if outfile == '-':
+        outfile = None
+        fileobj = sys.stdout.buffer
+    elif mode is None:
+        suffix = outfile.rfind('.')
+        if suffix >= 0:
+            mode = compress(outfile[suffix+1:])
+    if mode is None:
+        mode = 'w|'
+
+    # main operation
+    with open(sys.argv[optind], 'rb') as devfile:
+        init(devfile)
+        with tarfile.open(outfile, mode, fileobj) as archive:
+            if optind + 1 >= len(sys.argv):
+                traverse(archive, devfile, '', 1)
+            else:
+                for arg in sys.argv[optind + 1:]:
+                    traverse(archive, devfile, '', int(arg))
+            archive.close()
 
 if __name__ == '__main__':
     with open('logconfig.json') as c:
